@@ -28,7 +28,7 @@
 | 5 | Prompt 版本管理 | 6d27791 | ✅ |
 | 6 | 可观测性 Trace 存储 | 46041c8 | ✅ |
 | 7 | Gateway 编排 + Router | c1d402b | ✅ |
-| 8 | FastAPI routes + main | | 待做 |
+| 8 | FastAPI routes + main | （push 后填） | ✅ |
 | 9 | 测试 + README + 验证脚本 | | 待做 |
 
 ---
@@ -168,6 +168,26 @@ SDK 一律 `max_retries=0`。
 
 流式：同样前置，但 `adapter.stream` 不做整段重试；Gateway 测 TTFT 写 Trace。
 
-## 下一步（第 8 步）
+## 第 8 步：HTTP 入口
 
-- FastAPI routes + main（POST /v1/invoke、GET /v1/traces/{id}、健康检查）
+| 文件 | 职责 |
+|------|------|
+| `main.py` | FastAPI app + GatewayError → ErrorResponse |
+| `api/routes.py` | 路由定义 |
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/v1/health` | 健康检查 |
+| POST | `/v1/invoke` | 统一调用（stream 开关） |
+| GET | `/v1/traces/{trace_id}` | 查观测 |
+
+启动：
+```bash
+cd llm-gateway
+pip install -e ".[dev]"
+uvicorn app.main:app --reload --port 8000
+```
+
+## 下一步（第 9 步）
+
+- 测试 + README + 验证脚本（覆盖流式/结构化/模板/观测/重试/限流）
