@@ -26,7 +26,7 @@
 | 3 | 错误码 + 重试 + 按模型限流 | 83dabd9 | ✅ |
 | 4 | Adapter 基类 + OpenAI Responses + Anthropic Messages | 621b155 | ✅ |
 | 5 | Prompt 版本管理 | 6d27791 | ✅ |
-| 6 | 可观测性 Trace 存储 | | 待做 |
+| 6 | 可观测性 Trace 存储 | （push 后填） | ✅ |
 | 7 | Gateway 编排 + Router | | 待做 |
 | 8 | FastAPI routes + main | | 待做 |
 | 9 | 测试 + README + 验证脚本 | | 待做 |
@@ -139,6 +139,20 @@ SDK 一律 `max_retries=0`。
 - 模板不存在 → `unknown_prompt_template`
 - 渲染结果带 `content_hash`（sha256）供 Trace
 
-## 下一步（第 6 步）
+## 第 6 步：可观测性 Trace
 
-- 可观测性 Trace 存储（写 TraceRecord、按 trace_id 查询）
+| 文件 | 职责 |
+|------|------|
+| `services/trace_store.py` | `TraceStore`：生成 id、组装、save、get、list_recent |
+| `schemas/trace.py` | `TraceRecord` 字段定义 |
+
+能力：
+- `new_trace_id()` → `tr_<uuid>`
+- `build_record(...)` + `save(...)` 写入
+- `get(trace_id)` 查询；不存在 → `unknown_trace` (404)
+- 记录：model / resolved_upstream_model / usage(input/output) / latency(ttft/total) / retry_count / prompt_* / status
+- **不存** Prompt 原文与消息正文（只存 hash）
+
+## 下一步（第 7 步）
+
+- Gateway 编排 + Router（限流 → Prompt → 选 Adapter → retry → 写 Trace）

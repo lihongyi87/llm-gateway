@@ -16,6 +16,7 @@ class ErrorCode:
     SCHEMA_VALIDATION_FAILED = "schema_validation_failed"  # 结构化输出校验失败
     INVALID_REQUEST = "invalid_request"  # 入站参数不合法（编排层发现）
     INTERNAL_ERROR = "internal_error"  # 未分类的内部错误
+    UNKNOWN_TRACE = "unknown_trace"  # trace_id 不存在
 
 
 class GatewayError(Exception):
