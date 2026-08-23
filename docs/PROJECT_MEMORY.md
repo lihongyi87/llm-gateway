@@ -23,7 +23,7 @@
 | 1 | 项目骨架 pyproject.toml / .env.example / app 包 | ff29d1a | ✅ |
 | 2 | config.py + schemas 分包（厂商无关 API） | 125b38a | ✅ |
 | 3 | 错误码 + 重试 + 按模型限流 | 83dabd9 | ✅ |
-| 4 | Adapter 基类 + OpenAI Responses + Anthropic Messages | | 待做 |
+| 4 | Adapter 基类 + OpenAI Responses + Anthropic Messages | （push 后填） | ✅ |
 | 5 | Prompt 版本管理 | | 待做 |
 | 6 | 可观测性 Trace 存储 | | 待做 |
 | 7 | Gateway 编排 + Router | | 待做 |
@@ -104,9 +104,26 @@ app/schemas/
 
 ---
 
-## 下一步（第 4 步）
+## 第 4 步：Adapter（厂商翻译层）
 
-- `app/adapters/base.py` — ModelAdapter：`invoke` + `stream`
-- `app/adapters/openai_responses.py` — Pro（Responses API）
-- `app/adapters/anthropic_messages.py` — Flash（Messages API）
-- Adapter 内翻译：上游 prompt_tokens/finish_reason → 网关 input_tokens/stop_reason
+| 文件 | 职责 |
+|------|------|
+| `adapters/base.py` | `ModelAdapter`：`invoke` + `stream` |
+| `adapters/translate.py` | usage/stop_reason 数字与字符串归一 |
+| `adapters/openai_responses.py` | Pro → Responses API（input / text.format / max_output_tokens） |
+| `adapters/anthropic_messages.py` | Flash → Messages API（system 分离 / content blocks / max_tokens） |
+
+翻译对照：
+
+| 网关 | OpenAI Responses | Anthropic Messages |
+|------|------------------|-------------------|
+| input_tokens | input_tokens 或 prompt_tokens | input_tokens |
+| output_tokens | output_tokens 或 completion_tokens | output_tokens |
+| stop_reason | status 等 | stop_reason（end_turn→stop） |
+| output_format | text.format | extra_body.output_format |
+
+SDK 一律 `max_retries=0`。
+
+## 下一步（第 5 步）
+
+- Prompt 模板存储、变量替换、版本引用（`app/services/prompts.py`）
