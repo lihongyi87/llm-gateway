@@ -1,0 +1,102 @@
+# llm-gateway 项目记忆（每步做完更新，新会话先读此文件）
+
+> 仓库：https://github.com/lihongyi87/llm-gateway  
+> 工作流：**每步做完 → commit → push → 停 → 用户说继续**
+
+---
+
+## 核心原则（不要忘）
+
+1. **对外 API 是网关自己定义的**，不绑定 OpenAI/Anthropic 字段名
+2. **厂商差异只在 Adapter 里翻译**（input_tokens、stop_reason、output_format 等）
+3. **SDK 设 max_retries=0**，重试只在 `app/services/retry.py` 一层
+4. **每行代码要有注释**（用户要求）
+5. 路由：`POST /v1/invoke`（不是 /v1/chat/completions）
+
+---
+
+## 进度清单
+
+| 步 | 内容 | 提交 | 状态 |
+|----|------|------|------|
+| 1 | 项目骨架 pyproject.toml / .env.example / app 包 | ff29d1a | ✅ |
+| 2 | config.py + schemas 分包（厂商无关 API） | 125b38a | ✅ |
+| 3 | 错误码 + 重试 + 按模型限流 | 83dabd9 | ✅ |
+| 4 | Adapter 基类 + OpenAI Responses + Anthropic Messages | | 待做 |
+| 5 | Prompt 版本管理 | | 待做 |
+| 6 | 可观测性 Trace 存储 | | 待做 |
+| 7 | Gateway 编排 + Router | | 待做 |
+| 8 | FastAPI routes + main | | 待做 |
+| 9 | 测试 + README + 验证脚本 | | 待做 |
+
+---
+
+## 第 2 步：schemas 分层（厂商无关）
+
+```
+app/schemas/
+├── api_request.py   → InvokeRequest, Message, OutputFormat, PromptTemplateRef
+├── api_response.py  → InvokeResponse, StreamChunk（扁平，无 choices/object）
+├── internal.py      → InternalRequest/Response, StreamEvent（Adapter 边界）
+├── common.py        → UsageInfo(input_tokens/output_tokens), LatencyInfo
+├── errors.py        → ErrorDetail, ErrorResponse
+└── trace.py         → TraceRecord
+```
+
+**对外 vs 内部**：客户端只认 Invoke*；Adapter 只吃 Internal*。
+
+---
+
+## 第 3 步：韧性三件套
+
+### 文件
+
+| 文件 | 职责 |
+|------|------|
+| `app/core/errors.py` | ErrorCode 常量 + GatewayError 异常 + is_retryable_http_status |
+| `app/services/retry.py` | compute_backoff_seconds + retry_async |
+| `app/services/rate_limiter.py` | PerModelRateLimiter + 单例 rate_limiter |
+
+### 调用顺序（Gateway 将来这样用）
+
+```
+请求 → rate_limiter.acquire(model) → retry_async(lambda: adapter.complete(...)) → 写 Trace
+```
+
+### ErrorCode 一览
+
+- unknown_model / unknown_prompt_template / missing_prompt_variable
+- rate_limit_exceeded (429, retryable=True) — **网关自己的限流**
+- upstream_error (502) — 重试耗尽
+- schema_validation_failed / invalid_request / internal_error
+
+### 重试规则
+
+- 最多 3 次（config.max_retry_attempts）
+- 退避：`min(8, 0.5 * 2^attempt) + uniform(0, 0.2)`
+- 可重试：上游 429、5xx、网络错误
+- 不可重试：400/401、GatewayError.retryable=False、RATE_LIMIT_EXCEEDED（网关限流不重试）
+
+### 限流规则
+
+- pro: 60 req/min，flash: 120 req/min（.env 可配）
+- 滑动窗口 60 秒，按 model 独立计数
+- 未知 model 不限流（交给路由层报 unknown_model）
+
+---
+
+## 模型路由（config）
+
+| 平台名 | 协议 | upstream_model 配置项 |
+|--------|------|----------------------|
+| deepseek-v4-pro | OpenAI Responses API | upstream_model_pro |
+| deepseek-v4-flash | Anthropic Messages API | upstream_model_flash |
+
+---
+
+## 下一步（第 4 步）
+
+- `app/adapters/base.py` — ModelAdapter 协议
+- `app/adapters/openai_responses.py` — Pro
+- `app/adapters/anthropic_messages.py` — Flash
+- Adapter 内翻译：上游 prompt_tokens/finish_reason → 网关 input_tokens/stop_reason
