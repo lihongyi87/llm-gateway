@@ -27,7 +27,7 @@
 | 4 | Adapter 基类 + OpenAI Responses + Anthropic Messages | 621b155 | ✅ |
 | 5 | Prompt 版本管理 | 6d27791 | ✅ |
 | 6 | 可观测性 Trace 存储 | 46041c8 | ✅ |
-| 7 | Gateway 编排 + Router | | 待做 |
+| 7 | Gateway 编排 + Router | （push 后填） | ✅ |
 | 8 | FastAPI routes + main | | 待做 |
 | 9 | 测试 + README + 验证脚本 | | 待做 |
 
@@ -153,6 +153,21 @@ SDK 一律 `max_retries=0`。
 - 记录：model / resolved_upstream_model / usage(input/output) / latency(ttft/total) / retry_count / prompt_* / status
 - **不存** Prompt 原文与消息正文（只存 hash）
 
-## 下一步（第 7 步）
+## 第 7 步：Gateway + Router
 
-- Gateway 编排 + Router（限流 → Prompt → 选 Adapter → retry → 写 Trace）
+| 文件 | 类 | 职责 |
+|------|-----|------|
+| `services/model_router.py` | `ModelRouter` | platform model → Adapter + upstream_model |
+| `services/gateway_service.py` | `GatewayService` | 整条编排 |
+
+编排顺序（invoke）：
+```
+限流 → 校验 output_format → 路由 → 渲染 Prompt → InternalRequest
+→ retry_async(adapter.invoke) → 本地 JSON/Schema 校验 → 写 Trace → InvokeResponse
+```
+
+流式：同样前置，但 `adapter.stream` 不做整段重试；Gateway 测 TTFT 写 Trace。
+
+## 下一步（第 8 步）
+
+- FastAPI routes + main（POST /v1/invoke、GET /v1/traces/{id}、健康检查）
