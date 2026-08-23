@@ -6,11 +6,17 @@ from typing import Any, AsyncIterator, Dict, List, Optional  # 类型
 from openai import AsyncOpenAI  # OpenAI SDK（chat.completions）
 
 from app.adapters.model_adapter import ModelAdapter  # 统一接口
-from app.adapters.translate import map_stop_reason, map_usage, read_int  # 字段翻译
+from app.adapters.translate import (  # 字段翻译
+    map_stop_reason,
+    map_usage,
+    nonstream_latency,
+    read_cached_tokens,
+    read_int,
+    read_reasoning_tokens,
+)
 from app.config import settings  # 配置
 from app.core.errors import ErrorCode, GatewayError, is_retryable_exception  # 错误与重试分类
 from app.schemas.api_request import OutputFormat  # 结构化约束
-from app.schemas.common import LatencyInfo  # 延迟
 from app.schemas.internal import (  # 内部模型
     InternalMessage,
     InternalRequest,
@@ -67,6 +73,8 @@ class OpenAIChatCompletionsAdapter(ModelAdapter):
             input_tokens=read_int(usage, "prompt_tokens", "input_tokens"),
             output_tokens=read_int(usage, "completion_tokens", "output_tokens"),
             total_tokens=None if total_raw < 0 else total_raw,
+            cached_tokens=read_cached_tokens(usage),  # prompt_tokens_details.cached_tokens
+            reasoning_tokens=read_reasoning_tokens(usage),  # GLM 思考 token 拆出来
         )
 
     def _wrap(self, exc: Exception) -> GatewayError:
@@ -102,12 +110,11 @@ class OpenAIChatCompletionsAdapter(ModelAdapter):
         if choice is not None:
             content = getattr(getattr(choice, "message", None), "content", None) or ""
             finish = map_stop_reason(getattr(choice, "finish_reason", None))
-        elapsed_ms = (time.perf_counter() - started) * 1000.0
         return InternalResponse(
             content=content,
             usage=self._usage_from(getattr(resp, "usage", None)),
             stop_reason=finish,
-            latency=LatencyInfo(total_ms=elapsed_ms),
+            latency=nonstream_latency(started),  # 非流式 ttft=total
         )
 
     async def stream(self, request: InternalRequest) -> AsyncIterator[StreamEvent]:

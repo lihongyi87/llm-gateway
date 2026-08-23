@@ -6,11 +6,17 @@ from typing import Any, AsyncIterator, Dict, List, Optional, Tuple  # 类型注�
 from anthropic import AsyncAnthropic  # Anthropic 官方异步客户端
 
 from app.adapters.model_adapter import ModelAdapter  # 统一接口
-from app.adapters.translate import map_stop_reason, map_usage, read_int  # 字段翻译
+from app.adapters.translate import (  # 字段翻译
+    map_stop_reason,
+    map_usage,
+    nonstream_latency,
+    read_cached_tokens,
+    read_int,
+    read_reasoning_tokens,
+)
 from app.config import settings  # Key / Base URL
 from app.core.errors import ErrorCode, GatewayError, is_retryable_exception  # 统一错误与重试分类
 from app.schemas.api_request import OutputFormat  # 网关结构化约束
-from app.schemas.common import LatencyInfo  # 延迟
 from app.schemas.internal import (  # 内部模型
     InternalMessage,
     InternalRequest,
@@ -101,7 +107,8 @@ class AnthropicMessagesAdapter(ModelAdapter):
         return map_usage(
             input_tokens=read_int(usage, "input_tokens"),  # Anthropic 输入字段
             output_tokens=read_int(usage, "output_tokens"),  # Anthropic 输出字段
-            cached_tokens=read_int(usage, "cache_read_input_tokens", "cache_creation_input_tokens"),  # 缓存
+            cached_tokens=read_cached_tokens(usage),  # cache_read_input_tokens 等
+            reasoning_tokens=read_reasoning_tokens(usage),  # 若兼容端点给了思考 token
         )
 
     def _wrap_upstream_error(self, exc: Exception) -> GatewayError:
@@ -135,7 +142,6 @@ class AnthropicMessagesAdapter(ModelAdapter):
             message = await self._client.messages.create(**kwargs)  # 打上游
         except Exception as exc:  # noqa: BLE001
             raise self._wrap_upstream_error(exc) from exc
-        elapsed_ms = (time.perf_counter() - started) * 1000.0  # 总耗时
         content = self._extract_text(message)  # 提取文本
         usage = self._usage_from_message(message)  # 翻译用量
         raw_stop = getattr(message, "stop_reason", None)  # Anthropic 叫 stop_reason
@@ -143,7 +149,7 @@ class AnthropicMessagesAdapter(ModelAdapter):
             content=content,
             usage=usage,
             stop_reason=map_stop_reason(raw_stop),  # 归一化
-            latency=LatencyInfo(ttft_ms=None, generation_ms=None, total_ms=elapsed_ms),
+            latency=nonstream_latency(started),  # 非流式 ttft=total
         )
 
     async def stream(self, request: InternalRequest) -> AsyncIterator[StreamEvent]:

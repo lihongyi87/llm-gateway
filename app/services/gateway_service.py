@@ -233,6 +233,19 @@ class GatewayService:
         )
         self._traces.save(record)
 
+    def _normalize_nonstream_latency(self, latency: LatencyInfo) -> LatencyInfo:
+        """
+        非流式兜底：Adapter 若只填了 total_ms，把 ttft 补成同一值。
+        含义：完整 JSON 到达的时刻 = 客户端第一次看见内容的时刻。
+        """
+        if latency.ttft_ms is not None:  # Adapter 已经填了
+            return latency
+        return LatencyInfo(
+            ttft_ms=latency.total_ms,  # 与总耗时同刻
+            generation_ms=0.0 if latency.generation_ms is None else latency.generation_ms,
+            total_ms=latency.total_ms,
+        )
+
     async def invoke(self, request: InvokeRequest) -> InvokeResponse:
         """非流式完整调用编排。"""
         trace_id = self._traces.new_trace_id()  # 先发号，保证失败也能查
@@ -257,12 +270,13 @@ class GatewayService:
                 operation_name=f"invoke:{route.platform_model}",
             )
             self._validate_structured_content(result.content, request.output_format)  # ⑥ 出口校验
+            latency = self._normalize_nonstream_latency(result.latency)  # 非流式补 ttft
             self._save_ok_trace(  # ⑦ 写成功 Trace
                 trace_id=trace_id,
                 route=route,
                 rendered=rendered,
                 usage=result.usage,
-                latency=result.latency,
+                latency=latency,
                 retry_count=retry_count,
                 stop_reason=result.stop_reason,
             )

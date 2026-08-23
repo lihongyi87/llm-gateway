@@ -28,6 +28,8 @@ async def test_trace_records_usage_and_latency(prompt_service, limiter, traces):
     assert record.usage.output_tokens == 2  # 分类：输出
     assert record.usage.total_tokens == 5  # 合计
     assert record.latency.total_ms >= 0  # 有总延迟
+    assert record.latency.ttft_ms is not None  # 非流式也要有 ttft（= 完整响应到达）
+    assert record.latency.ttft_ms == record.latency.total_ms  # 拆不出首 token 后半段
     assert record.resolved_upstream_model == "fake-pro"  # 记录实际上游模型
 
 

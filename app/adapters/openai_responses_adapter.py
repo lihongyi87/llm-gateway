@@ -7,11 +7,17 @@ from typing import Any, AsyncIterator, Dict, List, Optional  # 类型注解
 from openai import AsyncOpenAI  # OpenAI 官方异步客户端（Responses API）
 
 from app.adapters.model_adapter import ModelAdapter  # 统一接口
-from app.adapters.translate import map_stop_reason, map_usage, read_int  # 字段翻译
+from app.adapters.translate import (  # 字段翻译
+    map_stop_reason,
+    map_usage,
+    nonstream_latency,
+    read_cached_tokens,
+    read_int,
+    read_reasoning_tokens,
+)
 from app.config import settings  # 读取 Key / Base URL
 from app.core.errors import ErrorCode, GatewayError, is_retryable_exception  # 统一错误与重试分类
 from app.schemas.api_request import OutputFormat  # 网关结构化约束
-from app.schemas.common import LatencyInfo  # 延迟结构
 from app.schemas.internal import (  # 内部请求/响应/流事件
     InternalMessage,
     InternalRequest,
@@ -90,8 +96,8 @@ class OpenAIResponsesAdapter(ModelAdapter):
             input_tokens=read_int(usage, "input_tokens", "prompt_tokens"),  # 输入（兼容旧名）
             output_tokens=read_int(usage, "output_tokens", "completion_tokens"),  # 输出（兼容旧名）
             total_tokens=None if total_raw < 0 else total_raw,  # 缺省交给 map_usage 自算
-            cached_tokens=read_int(usage, "cached_tokens"),  # 缓存（有则填）
-            reasoning_tokens=read_int(usage, "reasoning_tokens"),  # 推理（有则填）
+            cached_tokens=read_cached_tokens(usage),  # 顶层或 input_tokens_details
+            reasoning_tokens=read_reasoning_tokens(usage),  # 顶层或 output_tokens_details
         ) if usage is not None else map_usage()  # 无 usage 则全 0
 
     def _wrap_upstream_error(self, exc: Exception) -> GatewayError:
@@ -123,7 +129,6 @@ class OpenAIResponsesAdapter(ModelAdapter):
             response = await self._client.responses.create(**kwargs)  # 真正打上游
         except Exception as exc:  # noqa: BLE001 — SDK 异常统一包装
             raise self._wrap_upstream_error(exc) from exc
-        elapsed_ms = (time.perf_counter() - started) * 1000.0  # 总耗时毫秒
         content = self._extract_output_text(response)  # 提取文本
         usage = self._usage_from_response(response)  # 翻译用量
         # Responses 的 status / incomplete 细节简化为 stop_reason
@@ -133,7 +138,7 @@ class OpenAIResponsesAdapter(ModelAdapter):
             content=content,  # 助手文本
             usage=usage,  # 统一用量
             stop_reason=stop,  # 统一结束原因
-            latency=LatencyInfo(ttft_ms=None, generation_ms=None, total_ms=elapsed_ms),  # 非流式暂不拆 TTFT
+            latency=nonstream_latency(started),  # 非流式 ttft=total
         )
 
     async def stream(self, request: InternalRequest) -> AsyncIterator[StreamEvent]:

@@ -1,7 +1,13 @@
 # 覆盖：Adapter 翻译合同（不打真实上游，只验 Internal* ↔ 厂商字段）
 from app.adapters.anthropic_messages_adapter import AnthropicMessagesAdapter  # Flash 协议
 from app.adapters.openai_chat_completions_adapter import OpenAIChatCompletionsAdapter  # Pro 协议
-from app.adapters.translate import map_stop_reason, map_usage, read_int  # 共用翻译
+from app.adapters.translate import (  # 共用翻译
+    map_stop_reason,
+    map_usage,
+    read_cached_tokens,
+    read_int,
+    read_reasoning_tokens,
+)
 from app.schemas.api_request import OutputFormat, SchemaDefinition  # 结构化约束
 from app.schemas.internal import InternalMessage  # 内部消息
 
@@ -58,3 +64,29 @@ def test_translate_usage_and_stop_reason():
     assert map_stop_reason("end_turn") == "stop"  # Anthropic → 网关
     assert map_stop_reason("max_tokens") == "length"  # 触顶
     assert map_stop_reason("content_filter") == "content_filter"  # 安全
+
+
+def test_glm_reasoning_and_cached_tokens():
+    """GLM / OpenAI 兼容 usage：思考 token 从 completion_tokens_details 拆出。"""
+    usage = {
+        "prompt_tokens": 10,  # 输入
+        "completion_tokens": 50,  # 输出（可能含思考）
+        "total_tokens": 60,  # 合计
+        "completion_tokens_details": {"reasoning_tokens": 18},  # 智谱思考
+        "prompt_tokens_details": {"cached_tokens": 4},  # 缓存命中
+    }
+    assert read_reasoning_tokens(usage) == 18  # 思考拆出来
+    assert read_cached_tokens(usage) == 4  # 缓存拆出来
+    adapter = OpenAIChatCompletionsAdapter(api_key="test-key")  # 不发网
+    info = adapter._usage_from(usage)  # 走 Adapter 翻译
+    assert info.input_tokens == 10
+    assert info.output_tokens == 50
+    assert info.total_tokens == 60
+    assert info.reasoning_tokens == 18
+    assert info.cached_tokens == 4
+
+
+def test_reasoning_tokens_zero_when_absent():
+    """上游没给思考字段时保持 0，不能瞎填。"""
+    assert read_reasoning_tokens({"prompt_tokens": 1, "completion_tokens": 2}) == 0
+    assert read_cached_tokens({"prompt_tokens": 1}) == 0
