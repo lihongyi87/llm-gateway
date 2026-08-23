@@ -1,9 +1,9 @@
 # 模型路由器：平台逻辑模型名 → Adapter 实例 + 上游真实模型 ID
 from dataclasses import dataclass  # 路由结果打包
 
-from app.adapters.anthropic_messages_adapter import AnthropicMessagesAdapter  # Flash Adapter
+from app.adapters.anthropic_messages_adapter import AnthropicMessagesAdapter  # Flash → Messages（如 MiniMax）
 from app.adapters.model_adapter import ModelAdapter  # 统一接口类型
-from app.adapters.openai_responses_adapter import OpenAIResponsesAdapter  # Pro Adapter
+from app.adapters.openai_chat_completions_adapter import OpenAIChatCompletionsAdapter  # Pro → Chat Completions（如 GLM）
 from app.config import settings  # 读取 upstream_model_* 配置
 from app.core.errors import ErrorCode, GatewayError  # 未知模型错误
 
@@ -20,19 +20,20 @@ class RouteResult:
 class ModelRouter:
     """
     根据 InvokeRequest.model 选择 Adapter。
-    白名单之外的模型一律 unknown_model，不静默透传上游。
+    默认双协议：Chat Completions（Pro 槽）+ Anthropic Messages（Flash 槽）。
+    白名单之外的模型一律 unknown_model。
     """
 
     def __init__(self) -> None:
-        # 启动时创建两个 Adapter；密钥留在 Adapter / config，不进业务请求
+        # Pro 槽：OpenAI 兼容 Chat Completions（联调 GLM / 智谱）
         self._adapters: dict[str, ModelAdapter] = {
-            "deepseek-v4-pro": OpenAIResponsesAdapter(),  # Responses 协议
-            "deepseek-v4-flash": AnthropicMessagesAdapter(),  # Messages 协议
+            "deepseek-v4-pro": OpenAIChatCompletionsAdapter(),  # Chat Completions 协议
+            "deepseek-v4-flash": AnthropicMessagesAdapter(),  # Messages 协议（联调 MiniMax）
         }
-        # 平台名 → 上游真实模型名（来自配置，可热改配置文件后重启生效）
+        # 平台名 → 上游真实模型名
         self._upstream_names: dict[str, str] = {
-            "deepseek-v4-pro": settings.upstream_model_pro,  # Pro 上游 ID
-            "deepseek-v4-flash": settings.upstream_model_flash,  # Flash 上游 ID
+            "deepseek-v4-pro": settings.upstream_model_pro,
+            "deepseek-v4-flash": settings.upstream_model_flash,
         }
 
     def resolve(self, platform_model: str) -> RouteResult:

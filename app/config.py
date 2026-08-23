@@ -16,15 +16,15 @@ class Settings(BaseSettings):
     deepseek_pro_api_key: str = ""
     # DeepSeek Pro 的上游 Base URL
     deepseek_pro_base_url: str = "https://api.deepseek.com"
-    # Pro 在供应商侧的真实模型名（平台别名 deepseek-v4-pro 会映射到这里）
-    upstream_model_pro: str = "deepseek-chat"
+    # Pro 在供应商侧的真实模型名（联调 GLM 时可设为 glm-4.6 / glm-5.3）
+    upstream_model_pro: str = "glm-4.6"
 
-    # DeepSeek Flash 的 API Key，对应 Anthropic Messages API
+    # DeepSeek Flash 的 API Key，对应 Anthropic Messages API（联调可填 MiniMax Key）
     deepseek_flash_api_key: str = ""
-    # DeepSeek Flash 的 Anthropic 兼容地址
-    deepseek_flash_base_url: str = "https://api.deepseek.com/anthropic"
-    # Flash 在供应商侧的真实模型名
-    upstream_model_flash: str = "deepseek-chat"
+    # Flash 的 Anthropic 兼容地址（MiniMax 国内常用 api.minimaxi.com/anthropic）
+    deepseek_flash_base_url: str = "https://api.minimaxi.com/anthropic"
+    # Flash 在供应商侧的真实模型名（MiniMax-M3 等）
+    upstream_model_flash: str = "MiniMax-M3"
 
     # Pro 模型每分钟请求上限，超限返回 429
     rate_limit_pro: int = 60
