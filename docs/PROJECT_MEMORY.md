@@ -29,7 +29,7 @@
 | 6 | 可观测性 Trace 存储 | 46041c8 | ✅ |
 | 7 | Gateway 编排 + Router | c1d402b | ✅ |
 | 8 | FastAPI routes + main | 682cb3c | ✅ |
-| 9 | 测试 + README + 验证脚本 | | 待做 |
+| 9 | 测试 + README + 验证脚本 | （push 后填） | ✅ |
 
 ---
 
@@ -188,6 +188,14 @@ pip install -e ".[dev]"
 uvicorn app.main:app --reload --port 8000
 ```
 
-## 下一步（第 9 步）
+## 第 9 步：验收
 
-- 测试 + README + 验证脚本（覆盖流式/结构化/模板/观测/重试/限流）
+- `README.md`：启动 + curl 示例
+- `scripts/verify_all.py`：一键跑 pytest
+- `tests/`：流式 / 结构化 / 模板 / 观测 / 重试 / 限流 / 双模型 / health
+
+```bash
+python scripts/verify_all.py
+```
+
+作业六大功能均有自动化证据（FakeAdapter，不依赖真实 Key）。
