@@ -27,7 +27,7 @@
 | 4 | Adapter 基类 + OpenAI Responses + Anthropic Messages | 621b155 | ✅ |
 | 5 | Prompt 版本管理 | 6d27791 | ✅ |
 | 6 | 可观测性 Trace 存储 | 46041c8 | ✅ |
-| 7 | Gateway 编排 + Router | （push 后填） | ✅ |
+| 7 | Gateway 编排 + Router | c1d402b | ✅ |
 | 8 | FastAPI routes + main | | 待做 |
 | 9 | 测试 + README + 验证脚本 | | 待做 |
 
