@@ -25,7 +25,7 @@
 | 2 | config.py + schemas 分包（厂商无关 API） | 125b38a | ✅ |
 | 3 | 错误码 + 重试 + 按模型限流 | 83dabd9 | ✅ |
 | 4 | Adapter 基类 + OpenAI Responses + Anthropic Messages | 621b155 | ✅ |
-| 5 | Prompt 版本管理 | | 待做 |
+| 5 | Prompt 版本管理 | （push 后填） | ✅ |
 | 6 | 可观测性 Trace 存储 | | 待做 |
 | 7 | Gateway 编排 + Router | | 待做 |
 | 8 | FastAPI routes + main | | 待做 |
@@ -125,6 +125,20 @@ app/schemas/
 
 SDK 一律 `max_retries=0`。
 
-## 下一步（第 5 步）
+## 第 5 步：Prompt 版本管理
 
-- Prompt 模板存储、变量替换、版本引用（`app/services/prompts.py`）
+| 文件 | 职责 |
+|------|------|
+| `services/prompt_service.py` | `PromptService`：加载 / 提取变量 / 受限渲染 / hash |
+| `prompts/{name}/{version}.txt` | 模板存储，示例 summarize@1.0.0 / 1.1.0 |
+
+规则：
+- 路径：`app/prompts/{name}/{version}.txt`
+- 变量：仅 `{{var_name}}`，无表达式、无 eval
+- 缺变量 → `missing_prompt_variable`
+- 模板不存在 → `unknown_prompt_template`
+- 渲染结果带 `content_hash`（sha256）供 Trace
+
+## 下一步（第 6 步）
+
+- 可观测性 Trace 存储（写 TraceRecord、按 trace_id 查询）
