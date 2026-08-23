@@ -12,18 +12,18 @@ class Settings(BaseSettings):
         extra="ignore",             # 环境里多出来的变量不报错
     )
 
-    # DeepSeek Pro 的 API Key，对应 OpenAI Responses API
+    # Pro 槽 API Key。环境变量名是历史平台名，实际协议见 ModelRouter（Chat Completions）
     deepseek_pro_api_key: str = ""
-    # DeepSeek Pro 的上游 Base URL
+    # Pro 槽上游 Base URL（联调智谱时常为 open.bigmodel.cn/api/paas/v4）
     deepseek_pro_base_url: str = "https://api.deepseek.com"
-    # Pro 在供应商侧的真实模型名（联调 GLM 时可设为 glm-4.6 / glm-5.3）
+    # Pro 槽实际上游模型 ID（默认 glm-4.6，不是 DeepSeek 官网模型）
     upstream_model_pro: str = "glm-4.6"
 
-    # DeepSeek Flash 的 API Key，对应 Anthropic Messages API（联调可填 MiniMax Key）
+    # Flash 槽 API Key。实际协议是 Anthropic Messages（联调 MiniMax）
     deepseek_flash_api_key: str = ""
-    # Flash 的 Anthropic 兼容地址（MiniMax 国内常用 api.minimaxi.com/anthropic）
+    # Flash 槽 Anthropic 兼容地址（MiniMax 国内常用 api.minimaxi.com/anthropic）
     deepseek_flash_base_url: str = "https://api.minimaxi.com/anthropic"
-    # Flash 在供应商侧的真实模型名（MiniMax-M3 等）
+    # Flash 槽实际上游模型 ID（默认 MiniMax-M3）
     upstream_model_flash: str = "MiniMax-M3"
 
     # Pro 模型每分钟请求上限，超限返回 429

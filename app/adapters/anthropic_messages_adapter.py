@@ -8,7 +8,7 @@ from anthropic import AsyncAnthropic  # Anthropic 官方异步客户端
 from app.adapters.model_adapter import ModelAdapter  # 统一接口
 from app.adapters.translate import map_stop_reason, map_usage, read_int  # 字段翻译
 from app.config import settings  # Key / Base URL
-from app.core.errors import ErrorCode, GatewayError, is_retryable_http_status  # 统一错误
+from app.core.errors import ErrorCode, GatewayError, is_retryable_exception  # 统一错误与重试分类
 from app.schemas.api_request import OutputFormat  # 网关结构化约束
 from app.schemas.common import LatencyInfo  # 延迟
 from app.schemas.internal import (  # 内部模型
@@ -72,7 +72,7 @@ class AnthropicMessagesAdapter(ModelAdapter):
             schema_def = output_format.json_schema  # SchemaDefinition
             kwargs.setdefault("extra_body", {})["output_format"] = {
                 "type": "json_schema",  # 厂商侧命名
-                "schema": schema_def.schema,  # JSON Schema
+                "schema": schema_def.schema_body,  # 厂商 JSON 键仍叫 schema
                 "name": schema_def.name,  # 名称
                 "strict": schema_def.strict,  # 严格模式
             }
@@ -106,18 +106,15 @@ class AnthropicMessagesAdapter(ModelAdapter):
 
     def _wrap_upstream_error(self, exc: Exception) -> GatewayError:
         """把 Anthropic SDK 异常包装成 GatewayError。"""
-        status_code = getattr(exc, "status_code", None)  # HTTP 状态
-        if status_code is None and getattr(exc, "response", None) is not None:
-            status_code = getattr(exc.response, "status_code", None)
-        name = type(exc).__name__.lower()
-        is_timeout = "timeout" in name
+        name = type(exc).__name__.lower()  # 异常类名小写
+        is_timeout = "timeout" in name  # 粗判超时
         code = ErrorCode.UPSTREAM_TIMEOUT if is_timeout else ErrorCode.UPSTREAM_ERROR
         http_status = 504 if is_timeout else 502
         return GatewayError(
             code=code,
             message=f"Anthropic Messages upstream error: {exc}",
             http_status=http_status,
-            retryable=is_retryable_http_status(status_code) or is_timeout,
+            retryable=is_retryable_exception(exc) or is_timeout,  # TypeError/4xx 不重试
         )
 
     async def invoke(self, request: InternalRequest) -> InternalResponse:

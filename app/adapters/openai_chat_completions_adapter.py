@@ -8,7 +8,7 @@ from openai import AsyncOpenAI  # OpenAI SDK（chat.completions）
 from app.adapters.model_adapter import ModelAdapter  # 统一接口
 from app.adapters.translate import map_stop_reason, map_usage, read_int  # 字段翻译
 from app.config import settings  # 配置
-from app.core.errors import ErrorCode, GatewayError, is_retryable_http_status  # 错误
+from app.core.errors import ErrorCode, GatewayError, is_retryable_exception  # 错误与重试分类
 from app.schemas.api_request import OutputFormat  # 结构化约束
 from app.schemas.common import LatencyInfo  # 延迟
 from app.schemas.internal import (  # 内部模型
@@ -52,7 +52,7 @@ class OpenAIChatCompletionsAdapter(ModelAdapter):
                 "type": "json_schema",
                 "json_schema": {
                     "name": schema_def.name,
-                    "schema": schema_def.schema,
+                    "schema": schema_def.schema_body,  # 厂商 JSON 键仍叫 schema
                     "strict": schema_def.strict,
                 },
             }
@@ -71,16 +71,13 @@ class OpenAIChatCompletionsAdapter(ModelAdapter):
 
     def _wrap(self, exc: Exception) -> GatewayError:
         """包装上游异常。"""
-        status_code = getattr(exc, "status_code", None)
-        if status_code is None and getattr(exc, "response", None) is not None:
-            status_code = getattr(exc.response, "status_code", None)
-        name = type(exc).__name__.lower()
-        is_timeout = "timeout" in name
+        name = type(exc).__name__.lower()  # 异常类名小写
+        is_timeout = "timeout" in name  # 粗判超时
         return GatewayError(
             code=ErrorCode.UPSTREAM_TIMEOUT if is_timeout else ErrorCode.UPSTREAM_ERROR,
             message=f"Chat Completions upstream error: {exc}",
             http_status=504 if is_timeout else 502,
-            retryable=is_retryable_http_status(status_code) or is_timeout,
+            retryable=is_retryable_exception(exc) or is_timeout,  # TypeError/4xx 不重试
         )
 
     async def invoke(self, request: InternalRequest) -> InternalResponse:

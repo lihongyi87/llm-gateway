@@ -27,3 +27,5 @@ class StreamChunk(BaseModel):
     done: bool = False  # False=中间帧；True=最后一帧（可附带 stop_reason / usage）
     stop_reason: Optional[str] = None  # 仅 done=true 时通常有值
     usage: Optional[UsageInfo] = None  # 可选：最后一帧附带 Token 统计
+    error_code: Optional[str] = None  # 流中途失败时的稳定错误码；成功帧为 None
+    error_message: Optional[str] = None  # 流中途失败时的说明；禁止含 API Key

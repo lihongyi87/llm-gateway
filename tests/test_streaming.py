@@ -30,3 +30,30 @@ async def test_streaming_chunks(prompt_service, limiter, traces):
     assert chunks[-1].done is True  # 最后一帧 done
     assert chunks[-1].usage is not None  # 最后一帧带 usage
     assert chunks[-1].usage.input_tokens == 3  # 假 Adapter 用量
+    assert chunks[-1].error_code is None  # 成功流没有错误码
+
+
+@pytest.mark.asyncio
+async def test_streaming_mid_error_frame(prompt_service, limiter, traces):
+    """上游中途失败时，已吐出的文本后应跟一帧 error，而不是只 raise。"""
+    fake = FakeAdapter(
+        platform_model="deepseek-v4-flash",
+        stream_parts=["你", "好"],
+        stream_error_after=1,  # 第一段之后失败
+    )
+    router = ModelRouter()
+    router._adapters = {"deepseek-v4-flash": fake}
+    router._upstream_names = {"deepseek-v4-flash": "fake-flash"}
+    gw = GatewayService(router=router, prompts=prompt_service, limiter=limiter, traces=traces)
+    req = InvokeRequest(
+        model="deepseek-v4-flash",
+        stream=True,
+        messages=[Message(role="user", content="hi")],
+    )
+    chunks = []  # 收集帧
+    async for chunk in gw.stream(req):
+        chunks.append(chunk)
+    assert chunks[0].text == "你"  # 已经发出的增量保留
+    assert chunks[-1].done is True  # 错误终态
+    assert chunks[-1].error_code == "upstream_error"  # 稳定错误码
+    assert chunks[-1].error_message is not None  # 有说明

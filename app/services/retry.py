@@ -4,7 +4,7 @@ import random  # jitter，避免惊群效应
 from typing import Awaitable, Callable, TypeVar  # 泛型与可调用类型
 
 from app.config import settings  # 读取 max_retry_attempts
-from app.core.errors import ErrorCode, GatewayError, is_retryable_http_status  # 统一错误
+from app.core.errors import ErrorCode, GatewayError, is_retryable_exception  # 统一错误与重试分类
 
 # 泛型 T：表示被重试函数的最终返回类型（任意类型）
 T = TypeVar("T")
@@ -49,8 +49,7 @@ async def retry_async(
                 raise
         except Exception as exc:  # noqa: BLE001 — 兜底捕获上游 SDK/httpx 异常
             last_error = exc  # 记下原始异常
-            status_code = getattr(exc, "status_code", None)  # httpx/openai 常有 status_code
-            if not is_retryable_http_status(status_code):  # 不可重试则原样抛出
+            if not is_retryable_exception(exc):  # TypeError / 4xx / 缺 Key 等不重试
                 raise
 
         # 走到这里说明本次失败且还可重试

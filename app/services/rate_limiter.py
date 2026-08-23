@@ -1,4 +1,5 @@
 # 按模型独立限流：每个平台 model 各自计数，超限返回 429
+import threading  # 保护滑动窗口，避免并发 acquire 超卖
 import time  # 用单调时钟记录请求时间戳
 from collections import defaultdict, deque  # 每个模型一个滑动窗口队列
 
@@ -21,6 +22,7 @@ class PerModelRateLimiter:
             "deepseek-v4-flash": settings.rate_limit_flash,  # Flash 模型限额
         }
         self._window_seconds = 60.0  # 滑动窗口宽度：1 分钟
+        self._lock = threading.Lock()  # 并发 acquire 时串行化检查与写入
 
     def _cleanup_window(self, model: str, now: float) -> None:
         """丢掉窗口外的时间戳，只保留最近 60 秒内的请求记录。"""
@@ -39,22 +41,24 @@ class PerModelRateLimiter:
         if limit is None:  # 未知模型：交给路由层处理，限流器不拦
             return
 
-        self._cleanup_window(model, now)  # 清理过期记录
-        window = self._windows[model]  # 当前窗口内的请求时间戳
+        with self._lock:  # 检查与入队必须原子，否则并发会超卖
+            self._cleanup_window(model, now)  # 清理过期记录
+            window = self._windows[model]  # 当前窗口内的请求时间戳
 
-        if len(window) >= limit:  # 最近 1 分钟已达上限
-            raise GatewayError(
-                code=ErrorCode.RATE_LIMIT_EXCEEDED,  # 稳定错误码
-                message=f"model '{model}' rate limit exceeded ({limit} req/min)",  # 说明含限额
-                http_status=429,  # HTTP 标准「请求过多」
-                retryable=True,  # 客户端可稍后重试
-            )
+            if len(window) >= limit:  # 最近 1 分钟已达上限
+                raise GatewayError(
+                    code=ErrorCode.RATE_LIMIT_EXCEEDED,  # 稳定错误码
+                    message=f"model '{model}' rate limit exceeded ({limit} req/min)",  # 说明含限额
+                    http_status=429,  # HTTP 标准「请求过多」
+                    retryable=True,  # 客户端可稍后重试
+                )
 
-        window.append(now)  # 记录本次请求时间，占用一个配额
+            window.append(now)  # 记录本次请求时间，占用一个配额
 
     def reset(self) -> None:
         """清空所有计数（主要用于单元测试）。"""
-        self._windows.clear()  # 删掉全部模型的窗口数据
+        with self._lock:  # 与 acquire 互斥，避免测到一半被写入
+            self._windows.clear()  # 删掉全部模型的窗口数据
 
 
 # 进程内单例：全网关共享同一套限流状态

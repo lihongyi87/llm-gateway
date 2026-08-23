@@ -1,7 +1,7 @@
 # Gateway 编排服务：限流 → 路由 → Prompt → Adapter(invoke/stream) → 重试 → Trace
 import json  # 结构化输出本地校验
 import time  # 流式 TTFT / total 计时
-from typing import AsyncIterator, List, Optional  # 类型注解
+from typing import Any, AsyncIterator, List, Optional  # 类型注解
 
 from app.adapters.model_adapter import ModelAdapter  # Adapter 类型
 from app.core.errors import ErrorCode, GatewayError  # 统一错误
@@ -52,10 +52,46 @@ class GatewayService:
                 retryable=False,
             )
 
+    def _json_type_matches(self, value: Any, expected: str) -> bool:
+        """对照 JSON Schema 的 type 字符串检查 Python 值。"""
+        if expected == "string":  # JSON string
+            return isinstance(value, str)
+        if expected == "number":  # JSON number：int/float，排除 bool（bool 是 int 子类）
+            return isinstance(value, (int, float)) and not isinstance(value, bool)
+        if expected == "integer":  # JSON integer
+            return isinstance(value, int) and not isinstance(value, bool)
+        if expected == "boolean":  # JSON boolean
+            return isinstance(value, bool)
+        if expected == "object":  # JSON object
+            return isinstance(value, dict)
+        if expected == "array":  # JSON array
+            return isinstance(value, list)
+        if expected == "null":  # JSON null
+            return value is None
+        return True  # 未识别的 type 不硬拦，避免误杀扩展关键字
+
+    def _matches_schema_type(self, value: Any, expected: Any) -> bool:
+        """type 可能是字符串或数组（如 ["string","null"]）。"""
+        if isinstance(expected, list):  # 联合类型：命中任一即可
+            return any(self._json_type_matches(value, item) for item in expected if isinstance(item, str))
+        if isinstance(expected, str):  # 单一类型
+            return self._json_type_matches(value, expected)
+        return True  # 没有 type 约束则放过
+
+    def _fail_schema(self, message: str) -> None:
+        """统一抛出结构化校验失败。"""
+        raise GatewayError(
+            code=ErrorCode.SCHEMA_VALIDATION_FAILED,  # 稳定错误码
+            message=message,  # 说明缺字段 / 类型错 / 多余字段
+            http_status=422,  # 语义上是内容无法通过约束
+            retryable=False,  # 换请求或换模型输出才能好
+        )
+
     def _validate_structured_content(self, content: str, output_format: Optional[OutputFormat]) -> None:
         """
         本地校验模型输出（全有或全无）。
         供应商声称支持 Schema ≠ 应用层可以省略校验。
+        json_schema：必填 + 类型 + strict/additionalProperties=false 时禁多余字段。
         """
         if output_format is None:  # 自由文本不校验
             return
@@ -67,27 +103,36 @@ class GatewayService:
                 message=f"model output is not valid JSON: {exc}",
                 http_status=422,
                 retryable=False,
-            ) from exc
+            ) from exc  # 保留 JSON 解析异常链
         if output_format.type == "json_object":  # 弱约束：只要是 JSON
             return
         if output_format.type == "json_schema" and output_format.json_schema is not None:
-            schema = output_format.json_schema.schema  # JSON Schema 字典
+            schema_def = output_format.json_schema  # SchemaDefinition
+            schema = schema_def.schema_body  # JSON Schema 字典（字段名避开 BaseModel.schema）
             if not isinstance(parsed, dict):  # 根必须是 object（本网关简化假设）
-                raise GatewayError(
-                    code=ErrorCode.SCHEMA_VALIDATION_FAILED,
-                    message="json_schema output root must be an object",
-                    http_status=422,
-                    retryable=False,
-                )
+                self._fail_schema("json_schema output root must be an object")
             required = schema.get("required") or []  # 必填字段列表
             missing = [k for k in required if k not in parsed]  # 缺字段
             if missing:
-                raise GatewayError(
-                    code=ErrorCode.SCHEMA_VALIDATION_FAILED,
-                    message=f"json_schema missing required fields: {', '.join(missing)}",
-                    http_status=422,
-                    retryable=False,
-                )
+                self._fail_schema(f"json_schema missing required fields: {', '.join(missing)}")
+            properties = schema.get("properties") or {}  # 已声明字段
+            # strict=True 或 additionalProperties=false：禁止未声明字段
+            deny_extra = schema_def.strict or (schema.get("additionalProperties") is False)
+            if deny_extra:
+                extra = [k for k in parsed if k not in properties]  # 多出来的键
+                if extra:
+                    self._fail_schema(f"json_schema unexpected fields: {', '.join(extra)}")
+            for key, spec in properties.items():  # 逐个已声明字段做类型检查
+                if key not in parsed:  # 非必填且未出现：跳过
+                    continue
+                if not isinstance(spec, dict):  # 属性描述不是对象则无法检查
+                    continue
+                expected_type = spec.get("type")  # JSON Schema type
+                if expected_type is not None and not self._matches_schema_type(parsed[key], expected_type):
+                    self._fail_schema(f"json_schema field '{key}' has wrong type")
+                enum_values = spec.get("enum")  # 枚举约束
+                if isinstance(enum_values, list) and parsed[key] not in enum_values:
+                    self._fail_schema(f"json_schema field '{key}' is not in enum")
 
     def _build_messages(
         self,
@@ -240,10 +285,22 @@ class GatewayService:
             )
             raise  # 交给 HTTP 层转 ErrorResponse
 
+    def _stream_error_chunk(self, trace_id: str, model: str, error: GatewayError) -> StreamChunk:
+        """流已经对外吐过帧时，用终态错误帧收尾，避免只在生成器里 raise 把 SSE 掐断。"""
+        return StreamChunk(
+            id=trace_id,  # 与前面帧同一调用 ID
+            model=model,  # 平台模型名
+            text="",  # 错误帧不带增量文本
+            done=True,  # 告诉客户端流结束
+            error_code=error.code,  # 稳定错误码
+            error_message=error.message,  # 人类可读说明
+        )
+
     async def stream(self, request: InvokeRequest) -> AsyncIterator[StreamChunk]:
         """
         流式编排：把 StreamEvent 翻译成 StreamChunk。
-        注意：首 token 发出后不再换模型重试（本实现流式不做整段重试）。
+        首 token 发出后不再换模型重试；中途失败改发 SSE 错误帧，不再只 raise。
+        若带 output_format，流结束后对拼接全文做与非流式相同的本地校验。
         """
         trace_id = self._traces.new_trace_id()  # 追踪 ID
         route: Optional[RouteResult] = None
@@ -252,6 +309,8 @@ class GatewayService:
         first_token_at: Optional[float] = None  # 首个有内容 token 时刻
         final_usage = UsageInfo()  # 最终用量
         stop_reason: Optional[str] = "stop"  # 结束原因
+        emitted = False  # 是否已经向客户端 yield 过帧
+        collected: List[str] = []  # 累积文本，供流结束结构化校验
         try:
             self._limiter.acquire(request.model)  # 限流
             self._validate_output_format(request.output_format)  # 入站校验
@@ -261,11 +320,15 @@ class GatewayService:
                 request, route, messages, trace_id, rendered, stream=True
             )
             adapter: ModelAdapter = route.adapter  # 选中的 Adapter
+            saw_done = False  # 上游是否发过 done；没发也要在循环后补校验
             async for event in adapter.stream(internal):  # 消费内部事件
                 if event.type == "text_delta":
                     text = event.content or ""  # 增量文本
                     if text and first_token_at is None:  # 首个非空内容
                         first_token_at = time.perf_counter()
+                    if text:  # 只把有内容的增量拼进校验缓冲
+                        collected.append(text)
+                    emitted = True  # 已经对外发过帧
                     yield StreamChunk(  # 对外扁平帧
                         id=trace_id,
                         model=route.platform_model,
@@ -276,7 +339,11 @@ class GatewayService:
                     if event.usage is not None:
                         final_usage = event.usage  # 记下用量
                 elif event.type == "done":
+                    saw_done = True  # 已收到终态
                     stop_reason = event.stop_reason or "stop"
+                    # 流结束也做结构化校验，与非流式同一套规则
+                    self._validate_structured_content("".join(collected), request.output_format)
+                    emitted = True
                     yield StreamChunk(  # 最后一帧
                         id=trace_id,
                         model=route.platform_model,
@@ -286,12 +353,14 @@ class GatewayService:
                         usage=final_usage,
                     )
                 elif event.type == "error":
-                    raise GatewayError(
+                    raise GatewayError(  # 先转统一错误，下面按是否已吐帧决定 raise 或错误帧
                         code=event.error_code or ErrorCode.UPSTREAM_ERROR,
                         message=event.error_message or "stream error",
                         http_status=502,
                         retryable=False,
                     )
+            if not saw_done and request.output_format is not None:  # 上游没发 done 也要验全文
+                self._validate_structured_content("".join(collected), request.output_format)
             # 流正常结束后写 Trace（含 TTFT）
             ended = time.perf_counter()
             ttft_ms = None
@@ -318,7 +387,11 @@ class GatewayService:
                 error=exc,
                 model_hint=request.model,
             )
-            raise
+            if emitted:  # 已经开始 SSE，不能再改 HTTP 状态，改发错误终态帧
+                model_name = route.platform_model if route is not None else request.model
+                yield self._stream_error_chunk(trace_id, model_name, exc)
+                return
+            raise  # 一帧都没发：交给 HTTP 层返回 ErrorResponse JSON
 
     def get_trace(self, trace_id: str) -> TraceRecord:
         """按 id 查询 TraceRecord，供 GET /v1/traces/{id} 使用。"""

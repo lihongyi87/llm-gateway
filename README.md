@@ -1,22 +1,26 @@
 # LLM Gateway
 
-厂商无关的统一 LLM 调用网关：对外只认自有协议，OpenAI Responses / Anthropic Messages 差异封在 Adapter 内。
+厂商无关的统一 LLM 调用网关：对外只认自有协议，厂商差异封在 Adapter 内。
 
 ## 功能
 
 - 按 `model` 动态路由到不同 Adapter
 - 流式 SSE（`stream=true`）
-- 结构化输出（`output_format` + 本地校验）
+- 结构化输出（`output_format`，兼容作业原文 `response_format` + 本地校验）
 - Prompt 模板版本管理（`prompt_template`）
 - 可观测性（Token 分类 + TTFT/总延迟，`GET /v1/traces/{id}`）
 - 统一错误码 + 指数退避重试（最多 3 次）+ 按模型限流（429）
 
-## 平台模型
+## 平台模型（说真话）
 
-| model | 上游协议 |
-|-------|----------|
-| `deepseek-v4-pro` | OpenAI Responses API |
-| `deepseek-v4-flash` | Anthropic Messages API |
+平台名是网关自己的路由键，**不等于**实际上游厂商或模型 ID。默认接线如下（可用 `.env` 改 Key / Base URL / 上游 ID）：
+
+| 平台 model | 实际上游（默认） | 实际协议 | Adapter | 备注 |
+|------------|------------------|----------|---------|------|
+| `deepseek-v4-pro` | `glm-4.6` | OpenAI **Chat Completions** | `OpenAIChatCompletionsAdapter` | 环境变量仍叫 `DEEPSEEK_PRO_*`，只是槽位名 |
+| `deepseek-v4-flash` | `MiniMax-M3` | Anthropic **Messages** | `AnthropicMessagesAdapter` | 环境变量仍叫 `DEEPSEEK_FLASH_*` |
+
+`OpenAIResponsesAdapter` 已实现 Responses 协议翻译，**默认未挂进路由**（`GET /v1/health` 的 `optional_adapters` 会标明）。作业要双协议，现网双协议是 Chat Completions + Messages，不是 Responses + Messages。
 
 ## 启动
 
@@ -100,12 +104,13 @@ curl -s http://127.0.0.1:8000/v1/traces/tr_你的trace_id
 
 | 能力 | 测试文件 |
 |------|----------|
-| 双模型调用 | `tests/test_models_and_http.py` |
-| 流式 | `tests/test_streaming.py` |
-| 结构化输出 | `tests/test_structured.py` |
+| 双模型调用 / HTTP SSE / 健康检查映射 | `tests/test_models_and_http.py` |
+| 流式 + 中途错误帧 | `tests/test_streaming.py` |
+| 结构化输出 / `response_format` 别名 | `tests/test_structured.py` |
+| Adapter 翻译合同 | `tests/test_adapter_translate.py` |
 | 模板引用 | `tests/test_prompts.py` |
 | 可观测 | `tests/test_observability.py` |
-| 重试 | `tests/test_retry.py` |
+| 重试（含 TypeError/4xx 不重试） | `tests/test_retry.py` |
 | 限流 | `tests/test_rate_limit.py` |
 
 ## 目录结构

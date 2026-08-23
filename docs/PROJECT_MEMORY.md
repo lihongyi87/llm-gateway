@@ -30,6 +30,7 @@
 | 7 | Gateway 编排 + Router | c1d402b | ✅ |
 | 8 | FastAPI routes + main | 682cb3c | ✅ |
 | 9 | 测试 + README + 验证脚本 | 6363a51 | ✅ |
+| 10 | 对抗审查修复：诚实路由/别名/重试分类/SSE错误帧/深校验 | （本步） | ✅ |
 
 ---
 
@@ -85,8 +86,9 @@ app/schemas/
 
 - 最多 3 次（config.max_retry_attempts）
 - 退避：`min(8, 0.5 * 2^attempt) + uniform(0, 0.2)`
-- 可重试：上游 429、5xx、网络错误
-- 不可重试：400/401、GatewayError.retryable=False、RATE_LIMIT_EXCEEDED（网关限流不重试）
+- 可重试：上游 429、5xx、名字/文案像网络故障的异常
+- 不可重试：TypeError/ValueError 等编程错误、400/401、无状态码的未知异常、GatewayError.retryable=False、RATE_LIMIT_EXCEEDED
+- `is_retryable_http_status(None)` 现在是 **False**；无状态码必须走 `is_retryable_exception`
 
 ### 限流规则
 
@@ -98,10 +100,12 @@ app/schemas/
 
 ## 模型路由（config）
 
-| 平台名 | 协议 | upstream_model 配置项 |
-|--------|------|----------------------|
-| deepseek-v4-pro | OpenAI Responses API | upstream_model_pro |
-| deepseek-v4-flash | Anthropic Messages API | upstream_model_flash |
+| 平台名 | 实际协议（现网） | 默认上游 ID | 配置项 |
+|--------|------------------|------------|--------|
+| deepseek-v4-pro | OpenAI Chat Completions | glm-4.6 | upstream_model_pro / DEEPSEEK_PRO_* |
+| deepseek-v4-flash | Anthropic Messages | MiniMax-M3 | upstream_model_flash / DEEPSEEK_FLASH_* |
+
+`OpenAIResponsesAdapter` = 可选实现，**未接入 ModelRouter**。
 
 ---
 
@@ -111,7 +115,8 @@ app/schemas/
 |------|------|
 | `adapters/model_adapter.py` | `ModelAdapter`：`invoke` + `stream` |
 | `adapters/translate.py` | usage/stop_reason 数字与字符串归一 |
-| `adapters/openai_responses_adapter.py` | `OpenAIResponsesAdapter`：Pro → Responses API |
+| `adapters/openai_chat_completions_adapter.py` | `OpenAIChatCompletionsAdapter`：现网 Pro → Chat Completions |
+| `adapters/openai_responses_adapter.py` | `OpenAIResponsesAdapter`：可选，默认未接线 |
 | `adapters/anthropic_messages_adapter.py` | `AnthropicMessagesAdapter`：Flash → Messages API |
 
 翻译对照：
@@ -199,3 +204,15 @@ python scripts/verify_all.py
 ```
 
 作业六大功能均有自动化证据（FakeAdapter，不依赖真实 Key）。
+
+## 第 10 步：对抗审查修复
+
+审查结论：作业六项能交差，但经不起「文档/验收字段/重试误伤/流式 HTTP/校验深度」追问。本步按 5 条修：
+
+1. **说真话**：README / PROJECT_MEMORY / `GET /v1/health` 写清平台名、实际上游、实际协议；Responses Adapter 标成 optional。
+2. **`response_format` 别名**：`InvokeRequest.output_format` 同时接受作业原文字段，避免助教按原文验收挂。
+3. **重试先分类**：`TypeError` / 4xx / 缺 Key 不重试；修掉 `status_code is None → 一律重试`。
+4. **流式错误帧 + HTTP SSE 测试**：中途失败 yield `error_code` 终态帧；`tests/test_models_and_http.py` 走 TestClient SSE。
+5. **结构化深校验**：必填 + 类型 + strict 多余字段；流结束也验；`tests/test_adapter_translate.py` 锁翻译合同。
+
+顺带：`SchemaDefinition.schema` 改名为 `schema_body`（JSON 别名仍是 `schema`）；限流加锁。

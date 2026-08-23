@@ -45,8 +45,70 @@ async def test_both_models_invoke(prompt_service, limiter, traces):
 
 
 def test_health_endpoint():
-    """HTTP /v1/health 应返回 ok。"""
+    """HTTP /v1/health 应返回 ok，并公开实际协议映射。"""
     client = TestClient(app)  # 同步测试客户端
     resp = client.get("/v1/health")  # 发请求
     assert resp.status_code == 200  # 成功
-    assert resp.json()["status"] == "ok"  # 正文
+    body = resp.json()  # 解析 JSON
+    assert body["status"] == "ok"  # 存活
+    models = {item["model"]: item for item in body["models"]}  # 按平台名索引
+    assert models["deepseek-v4-pro"]["protocol"] == "openai_chat_completions"  # Pro 实际协议
+    assert models["deepseek-v4-flash"]["protocol"] == "anthropic_messages"  # Flash 实际协议
+    optional = body["optional_adapters"]  # 未接线适配器
+    assert optional[0]["adapter"] == "OpenAIResponsesAdapter"  # Responses 标明可选
+    assert optional[0]["status"] == "implemented_but_not_wired"  # 未挂路由
+
+
+def test_http_sse_stream(monkeypatch, prompt_service, limiter, traces):
+    """HTTP 层必须真走 SSE：Content-Type + data 行 + [DONE]。"""
+    fake = FakeAdapter(platform_model="deepseek-v4-flash", stream_parts=["你", "好"])
+    router = ModelRouter()
+    router._adapters = {"deepseek-v4-flash": fake}
+    router._upstream_names = {"deepseek-v4-flash": "fake-flash"}
+    gw = GatewayService(router=router, prompts=prompt_service, limiter=limiter, traces=traces)
+    monkeypatch.setattr("app.api.routes.gateway_service", gw)  # 注入假网关，不打真实上游
+    client = TestClient(app)  # 同步客户端
+    with client.stream(
+        "POST",
+        "/v1/invoke",
+        json={
+            "model": "deepseek-v4-flash",
+            "stream": True,
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+    ) as resp:
+        assert resp.status_code == 200  # SSE 成功开始
+        assert "text/event-stream" in resp.headers["content-type"]  # 正确媒体类型
+        body = "".join(resp.iter_text())  # 拼完整 SSE 文本
+    assert "data:" in body  # 至少有一帧
+    assert "[DONE]" in body  # 结束标记
+    assert "你" in body  # 第一段
+    assert "好" in body  # 第二段
+
+
+def test_http_sse_mid_stream_error(monkeypatch, prompt_service, limiter, traces):
+    """HTTP 流中途失败应仍是 SSE，且 data 里带 error_code。"""
+    fake = FakeAdapter(
+        platform_model="deepseek-v4-flash",
+        stream_parts=["你", "好"],
+        stream_error_after=1,
+    )
+    router = ModelRouter()
+    router._adapters = {"deepseek-v4-flash": fake}
+    router._upstream_names = {"deepseek-v4-flash": "fake-flash"}
+    gw = GatewayService(router=router, prompts=prompt_service, limiter=limiter, traces=traces)
+    monkeypatch.setattr("app.api.routes.gateway_service", gw)
+    client = TestClient(app)
+    with client.stream(
+        "POST",
+        "/v1/invoke",
+        json={
+            "model": "deepseek-v4-flash",
+            "stream": True,
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+    ) as resp:
+        assert resp.status_code == 200  # 已经开始推流，不能改成 502 JSON
+        body = "".join(resp.iter_text())
+    assert "upstream_error" in body  # 错误码在 SSE 帧里
+    assert "[DONE]" in body  # 仍然收尾

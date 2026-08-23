@@ -1,4 +1,5 @@
-# OpenAI Responses API Adapter：供 deepseek-v4-pro 使用
+# OpenAI Responses API Adapter（可选，默认未挂进 ModelRouter）
+# 现网 Pro 槽走 Chat Completions；本文件保留给需要 Responses 协议时接入
 # 职责：InternalRequest ↔ Responses 协议互译；SDK 对象不出本文件
 import time  # 测量 total_ms / ttft_ms
 from typing import Any, AsyncIterator, Dict, List, Optional  # 类型注解
@@ -8,7 +9,7 @@ from openai import AsyncOpenAI  # OpenAI 官方异步客户端（Responses API�
 from app.adapters.model_adapter import ModelAdapter  # 统一接口
 from app.adapters.translate import map_stop_reason, map_usage, read_int  # 字段翻译
 from app.config import settings  # 读取 Key / Base URL
-from app.core.errors import ErrorCode, GatewayError, is_retryable_http_status  # 统一错误
+from app.core.errors import ErrorCode, GatewayError, is_retryable_exception  # 统一错误与重试分类
 from app.schemas.api_request import OutputFormat  # 网关结构化约束
 from app.schemas.common import LatencyInfo  # 延迟结构
 from app.schemas.internal import (  # 内部请求/响应/流事件
@@ -61,7 +62,7 @@ class OpenAIResponsesAdapter(ModelAdapter):
                 "format": {
                     "type": "json_schema",  # 厂商字段名
                     "name": schema_def.name,  # Schema 名
-                    "schema": schema_def.schema,  # JSON Schema 本体
+                    "schema": schema_def.schema_body,  # 厂商 JSON 键仍叫 schema
                     "strict": schema_def.strict,  # 严格模式
                 }
             }
@@ -95,9 +96,6 @@ class OpenAIResponsesAdapter(ModelAdapter):
 
     def _wrap_upstream_error(self, exc: Exception) -> GatewayError:
         """把 OpenAI SDK 异常包装成 GatewayError，供 retry_async 判断是否重试。"""
-        status_code = getattr(exc, "status_code", None)  # 常见属性
-        if status_code is None and getattr(exc, "response", None) is not None:  # 嵌套 response
-            status_code = getattr(exc.response, "status_code", None)
         name = type(exc).__name__.lower()  # 异常类名小写
         is_timeout = "timeout" in name  # 粗判超时
         code = ErrorCode.UPSTREAM_TIMEOUT if is_timeout else ErrorCode.UPSTREAM_ERROR  # 选错误码
@@ -106,7 +104,7 @@ class OpenAIResponsesAdapter(ModelAdapter):
             code=code,  # 稳定错误码
             message=f"OpenAI Responses upstream error: {exc}",  # 不含 Key
             http_status=http_status,  # HTTP 建议码
-            retryable=is_retryable_http_status(status_code) or is_timeout,  # 是否可重试
+            retryable=is_retryable_exception(exc) or is_timeout,  # TypeError/4xx 不重试
         )
 
     async def invoke(self, request: InternalRequest) -> InternalResponse:

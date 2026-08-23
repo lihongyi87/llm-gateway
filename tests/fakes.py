@@ -16,11 +16,13 @@ class FakeAdapter(ModelAdapter):
         content: str = "hello",  # 非流式返回文本
         fail_times: int = 0,  # 前 N 次 invoke 抛可重试错误
         stream_parts: Optional[List[str]] = None,  # 流式文本片段
+        stream_error_after: Optional[int] = None,  # 产出 N 段文本后发 error 事件；None=不注入
     ) -> None:
         self.platform_model = platform_model  # 绑定平台名
         self.content = content  # 固定回复
         self.fail_times = fail_times  # 剩余失败次数
         self.stream_parts = stream_parts or ["hel", "lo"]  # 默认两段
+        self.stream_error_after = stream_error_after  # 中途失败位置
         self.invoke_calls = 0  # 调用计数，供断言重试
 
     async def invoke(self, request: InternalRequest) -> InternalResponse:
@@ -42,8 +44,15 @@ class FakeAdapter(ModelAdapter):
         )
 
     async def stream(self, request: InternalRequest) -> AsyncIterator[StreamEvent]:
-        """流式：依次产出 text_delta，再 usage / done。"""
-        for part in self.stream_parts:  # 逐段文本
+        """流式：依次产出 text_delta，再 usage / done；可在中途注入 error。"""
+        for index, part in enumerate(self.stream_parts):  # 逐段文本
+            if self.stream_error_after is not None and index >= self.stream_error_after:
+                yield StreamEvent(  # 模拟上游流中途断开
+                    type="error",
+                    error_code=ErrorCode.UPSTREAM_ERROR,
+                    error_message="simulated mid-stream failure",
+                )
+                return  # 不再发 usage/done
             yield StreamEvent(type="text_delta", content=part)
         yield StreamEvent(  # 用量
             type="usage",
