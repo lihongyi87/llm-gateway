@@ -23,7 +23,7 @@
 | 1 | 项目骨架 pyproject.toml / .env.example / app 包 | ff29d1a | ✅ |
 | 2 | config.py + schemas 分包（厂商无关 API） | 125b38a | ✅ |
 | 3 | 错误码 + 重试 + 按模型限流 | 83dabd9 | ✅ |
-| 4 | Adapter 基类 + OpenAI Responses + Anthropic Messages | （push 后填） | ✅ |
+| 4 | Adapter 基类 + OpenAI Responses + Anthropic Messages | 621b155 | ✅ |
 | 5 | Prompt 版本管理 | | 待做 |
 | 6 | 可观测性 Trace 存储 | | 待做 |
 | 7 | Gateway 编排 + Router | | 待做 |
