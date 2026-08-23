@@ -29,7 +29,7 @@
 | 6 | 可观测性 Trace 存储 | 46041c8 | ✅ |
 | 7 | Gateway 编排 + Router | c1d402b | ✅ |
 | 8 | FastAPI routes + main | 682cb3c | ✅ |
-| 9 | 测试 + README + 验证脚本 | （push 后填） | ✅ |
+| 9 | 测试 + README + 验证脚本 | 6363a51 | ✅ |
 
 ---
 
