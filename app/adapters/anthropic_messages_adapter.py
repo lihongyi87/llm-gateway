@@ -128,7 +128,8 @@ class AnthropicMessagesAdapter(ModelAdapter):
             "model": request.upstream_model,  # 上游模型 ID
             "messages": body,  # Anthropic messages
             "max_tokens": request.max_tokens,  # Anthropic 必填 max_tokens
-            "temperature": request.temperature,  # 温度
+            # anthropic>=1.0 方法签名可能不含 temperature，改走 extra_body
+            "extra_body": {"temperature": request.temperature},
         }
         if system:  # 有 system 才传
             kwargs["system"] = system
@@ -155,7 +156,7 @@ class AnthropicMessagesAdapter(ModelAdapter):
             "model": request.upstream_model,
             "messages": body,
             "max_tokens": request.max_tokens,
-            "temperature": request.temperature,
+            "extra_body": {"temperature": request.temperature},  # 同上，避免 SDK 签名拒绝
         }
         if system:
             kwargs["system"] = system
