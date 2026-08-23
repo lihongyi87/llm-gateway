@@ -12,6 +12,7 @@
 3. **SDK 设 max_retries=0**，重试只在 `app/services/retry.py` 一层
 4. **每行代码要有注释**（用户要求）
 5. 路由：`POST /v1/invoke`（不是 /v1/chat/completions）
+6. Adapter 方法：`invoke`（非流式）+ `stream`（流式），不用 `complete`
 
 ---
 
@@ -60,8 +61,17 @@ app/schemas/
 ### 调用顺序（Gateway 将来这样用）
 
 ```
-请求 → rate_limiter.acquire(model) → retry_async(lambda: adapter.complete(...)) → 写 Trace
+请求 → rate_limiter.acquire(model) → retry_async(lambda: adapter.invoke(...)) → 写 Trace
 ```
+
+### Adapter 方法命名（厂商无关，对齐 InvokeRequest）
+
+| 方法 | 用途 | 返回 |
+|------|------|------|
+| `invoke` | 非流式调用 | `InternalResponse` |
+| `stream` | 流式调用 | `AsyncIterator[StreamEvent]` |
+
+禁止用 `complete`（易与 OpenAI Completions 绑定）。
 
 ### ErrorCode 一览
 
@@ -96,7 +106,7 @@ app/schemas/
 
 ## 下一步（第 4 步）
 
-- `app/adapters/base.py` — ModelAdapter 协议
-- `app/adapters/openai_responses.py` — Pro
-- `app/adapters/anthropic_messages.py` — Flash
+- `app/adapters/base.py` — ModelAdapter：`invoke` + `stream`
+- `app/adapters/openai_responses.py` — Pro（Responses API）
+- `app/adapters/anthropic_messages.py` — Flash（Messages API）
 - Adapter 内翻译：上游 prompt_tokens/finish_reason → 网关 input_tokens/stop_reason

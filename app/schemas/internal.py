@@ -20,7 +20,7 @@ class InternalRequest(BaseModel):
     model: str  # 平台逻辑模型名（限流键、Trace 键）
     upstream_model: str  # 上游真实模型 ID，仅 Adapter 发出 HTTP 时使用
     messages: List[InternalMessage]  # 已渲染消息列表
-    stream: bool = False  # True 走 stream()，False 走 complete()
+    stream: bool = False  # True 走 stream()，False 走 invoke()
     temperature: float = 0.7  # 采样温度
     max_tokens: int = 1024  # 输出上限
     output_format: Optional[OutputFormat] = None  # 结构化输出；Adapter 翻译成 response_format / output_config 等
