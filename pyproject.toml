@@ -12,7 +12,7 @@ name = "llm-gateway"
 # 当前作业版本号
 version = "0.1.0"
 # 一句话说明本项目做什么
-description = "阶段一作业：统一 LLM 调用网关（双协议 Adapter）"
+description = "统一 LLM 调用网关（双协议 Adapter）"
 # 最低 Python 版本要求
 requires-python = ">=3.11"
 # 运行网关所需的第三方库
