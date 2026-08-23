@@ -1,0 +1,18 @@
+# 本文件告诉 git 哪些文件不要上传到 GitHub
+
+# Python 缓存目录
+__pycache__/
+# 编译出的字节码
+*.py[cod]
+# 虚拟环境目录
+.venv/
+venv/
+# pytest 缓存
+.pytest_cache/
+# 真实密钥文件，绝对不能上传
+.env
+# 编辑器/系统垃圾
+.idea/
+.vscode/
+*.swp
+Thumbs.db

@@ -1,0 +1,52 @@
+# 本文件声明项目元数据、依赖和测试配置，供 pip / pytest 读取
+[build-system]
+# 构建本包时需要的工具列表
+requires = ["setuptools>=68.0", "wheel"]
+# 指定用 setuptools 作为构建后端
+build-backend = "setuptools.build_meta"
+
+# 下面是项目本身的信息与运行依赖
+[project]
+# pip 安装时显示的项目名
+name = "llm-gateway"
+# 当前作业版本号
+version = "0.1.0"
+# 一句话说明本项目做什么
+description = "阶段一作业：统一 LLM 调用网关（双协议 Adapter）"
+# 最低 Python 版本要求
+requires-python = ">=3.11"
+# 运行网关所需的第三方库
+dependencies = [
+    "fastapi>=0.115.0",            # HTTP API 框架
+    "uvicorn[standard]>=0.30.0",   # 启动 FastAPI 的 ASGI 服务器
+    "pydantic>=2.7.0",             # 请求/响应数据校验
+    "pydantic-settings>=2.3.0",    # 从环境变量加载配置
+    "httpx>=0.27.0",               # 异步 HTTP 客户端，Adapter 调上游用
+    "openai>=1.40.0",              # OpenAI SDK，对接 Responses API
+    "anthropic>=0.34.0",           # Anthropic SDK，对接 Messages API
+    "jinja2>=3.1.0",               # Prompt 模板变量替换
+    "python-dotenv>=1.0.0",        # 读取 .env 文件
+]
+
+# 开发/测试时才需要安装的依赖（pip install -e ".[dev]"）
+[project.optional-dependencies]
+# 开发附加依赖组
+dev = [
+    "pytest>=8.0.0",               # 单元测试框架
+    "pytest-asyncio>=0.23.0",      # 让 pytest 能跑 async 测试
+    "pytest-httpx>=0.30.0",        # 测试里 Mock HTTP 请求
+]
+
+# 告诉 setuptools 去哪里找 Python 包
+[tool.setuptools.packages.find]
+# 从当前目录开始扫描
+where = ["."]
+# 只把 app 及其子包当成可安装包
+include = ["app*"]
+
+# pytest 默认行为
+[tool.pytest.ini_options]
+# 自动把 async 测试函数当协程跑
+asyncio_mode = "auto"
+# 测试文件所在目录
+testpaths = ["tests"]
