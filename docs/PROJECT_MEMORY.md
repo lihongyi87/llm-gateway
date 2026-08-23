@@ -25,7 +25,7 @@
 | 2 | config.py + schemas 分包（厂商无关 API） | 125b38a | ✅ |
 | 3 | 错误码 + 重试 + 按模型限流 | 83dabd9 | ✅ |
 | 4 | Adapter 基类 + OpenAI Responses + Anthropic Messages | 621b155 | ✅ |
-| 5 | Prompt 版本管理 | （push 后填） | ✅ |
+| 5 | Prompt 版本管理 | 6d27791 | ✅ |
 | 6 | 可观测性 Trace 存储 | | 待做 |
 | 7 | Gateway 编排 + Router | | 待做 |
 | 8 | FastAPI routes + main | | 待做 |
