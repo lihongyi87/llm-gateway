@@ -13,6 +13,7 @@
 4. **每行代码要有注释**（用户要求）
 5. 路由：`POST /v1/invoke`（不是 /v1/chat/completions）
 6. Adapter 方法：`invoke`（非流式）+ `stream`（流式），不用 `complete`
+7. 文件名与类名对齐：`model_adapter.py` ↔ `ModelAdapter`（snake_case ↔ PascalCase）
 
 ---
 
@@ -108,10 +109,10 @@ app/schemas/
 
 | 文件 | 职责 |
 |------|------|
-| `adapters/base.py` | `ModelAdapter`：`invoke` + `stream` |
+| `adapters/model_adapter.py` | `ModelAdapter`：`invoke` + `stream` |
 | `adapters/translate.py` | usage/stop_reason 数字与字符串归一 |
-| `adapters/openai_responses.py` | Pro → Responses API（input / text.format / max_output_tokens） |
-| `adapters/anthropic_messages.py` | Flash → Messages API（system 分离 / content blocks / max_tokens） |
+| `adapters/openai_responses_adapter.py` | `OpenAIResponsesAdapter`：Pro → Responses API |
+| `adapters/anthropic_messages_adapter.py` | `AnthropicMessagesAdapter`：Flash → Messages API |
 
 翻译对照：
 

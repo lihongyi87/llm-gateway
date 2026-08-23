@@ -5,7 +5,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional, Tuple  # 类型注�
 
 from anthropic import AsyncAnthropic  # Anthropic 官方异步客户端
 
-from app.adapters.base import ModelAdapter  # 统一接口
+from app.adapters.model_adapter import ModelAdapter  # 统一接口
 from app.adapters.translate import map_stop_reason, map_usage, read_int  # 字段翻译
 from app.config import settings  # Key / Base URL
 from app.core.errors import ErrorCode, GatewayError, is_retryable_http_status  # 统一错误

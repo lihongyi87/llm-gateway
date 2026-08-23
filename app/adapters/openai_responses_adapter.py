@@ -5,7 +5,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional  # 类型注解
 
 from openai import AsyncOpenAI  # OpenAI 官方异步客户端（Responses API）
 
-from app.adapters.base import ModelAdapter  # 统一接口
+from app.adapters.model_adapter import ModelAdapter  # 统一接口
 from app.adapters.translate import map_stop_reason, map_usage, read_int  # 字段翻译
 from app.config import settings  # 读取 Key / Base URL
 from app.core.errors import ErrorCode, GatewayError, is_retryable_http_status  # 统一错误
