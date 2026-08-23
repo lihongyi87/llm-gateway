@@ -26,7 +26,7 @@
 | 3 | 错误码 + 重试 + 按模型限流 | 83dabd9 | ✅ |
 | 4 | Adapter 基类 + OpenAI Responses + Anthropic Messages | 621b155 | ✅ |
 | 5 | Prompt 版本管理 | 6d27791 | ✅ |
-| 6 | 可观测性 Trace 存储 | （push 后填） | ✅ |
+| 6 | 可观测性 Trace 存储 | 46041c8 | ✅ |
 | 7 | Gateway 编排 + Router | | 待做 |
 | 8 | FastAPI routes + main | | 待做 |
 | 9 | 测试 + README + 验证脚本 | | 待做 |
