@@ -20,30 +20,23 @@ async def health() -> dict:
     健康检查：进程存活即可，不探活上游。
     同时公开「平台名 / 实际上游 / 实际协议」，避免文档与接线说谎。
     """
-    return {
-        "status": "ok",  # 进程活着
-        "models": [  # 当前路由表的诚实映射（不是作业模板里的假想接线）
-            {
-                "model": "deepseek-v4-pro",  # 平台逻辑名
-                "upstream_model": settings.upstream_model_pro,  # .env 里的真实上游 ID
-                "protocol": "openai_chat_completions",  # 实际走 Chat Completions
-                "adapter": "OpenAIChatCompletionsAdapter",  # 实现类
-            },
-            {
-                "model": "deepseek-v4-flash",  # 平台逻辑名
-                "upstream_model": settings.upstream_model_flash,  # 默认 MiniMax-M3
-                "protocol": "anthropic_messages",  # 实际走 Anthropic Messages
-                "adapter": "AnthropicMessagesAdapter",  # 实现类
-            },
-        ],
-        "optional_adapters": [  # 已实现但默认未挂进路由，避免被当成现网路径
-            {
-                "adapter": "OpenAIResponsesAdapter",  # Responses 协议翻译器
-                "protocol": "openai_responses",  # 协议名
-                "status": "implemented_but_not_wired",  # 未接入 ModelRouter
-            }
-        ],
+    # 路由表从 ModelRouter 动态派生——诚实靠构造保证（配置切协议表跟着变）
+    from app.services.model_router import model_router
+    protocol_by_adapter = {
+        "OpenAIChatCompletionsAdapter": "openai_chat_completions",
+        "OpenAIResponsesAdapter": "openai_responses",
+        "AnthropicMessagesAdapter": "anthropic_messages",
     }
+    models = []
+    for name, adapter in model_router._adapters.items():
+        cls = type(adapter).__name__
+        models.append({
+            "model": name,
+            "upstream_model": model_router._upstream_names[name],
+            "protocol": protocol_by_adapter.get(cls, cls),
+            "adapter": cls,
+        })
+    return {"status": "ok", "models": models}
 
 
 @router.post("/invoke", response_model=None)
@@ -65,9 +58,11 @@ async def invoke(request: InvokeRequest):
                     if chunk.done:  # 最后一帧后再发结束标记（可选约定）
                         yield "data: [DONE]\n\n"
             except GatewayError as exc:
-                if not sent:  # 一帧都没发：让 FastAPI 走统一 JSON 错误
-                    raise
-                # 已经发过 SSE，只能再补错误帧，不能改 HTTP 状态
+                # StreamingResponse 响应头在开始迭代时已提交——生成器内
+                # 任何时刻 raise 都只会变成 "response already started"
+                # RuntimeError。SSE 的错误通道只有错误帧：一律补帧再 [DONE]，
+                # 永不在生成器内 raise（零帧失败也走错误帧，客户端靠
+                # error_code 判定，不依赖 HTTP 状态码）
                 err = StreamChunk(
                     id="stream-error",  # 兜底 ID（网关层通常已带真实 trace_id）
                     model=request.model,  # 回显平台模型

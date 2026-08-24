@@ -4,6 +4,7 @@ from dataclasses import dataclass  # 路由结果打包
 from app.adapters.anthropic_messages_adapter import AnthropicMessagesAdapter  # Flash → Messages（如 MiniMax）
 from app.adapters.model_adapter import ModelAdapter  # 统一接口类型
 from app.adapters.openai_chat_completions_adapter import OpenAIChatCompletionsAdapter  # Pro → Chat Completions（如 GLM）
+from app.adapters.openai_responses_adapter import OpenAIResponsesAdapter  # Pro → Responses（作业要求·协议开关启用）
 from app.config import settings  # 读取 upstream_model_* 配置
 from app.core.errors import ErrorCode, GatewayError  # 未知模型错误
 
@@ -25,15 +26,23 @@ class ModelRouter:
     """
 
     def __init__(self) -> None:
-        # Pro 槽：OpenAI 兼容 Chat Completions（联调 GLM / 智谱）
+        # Pro 槽协议由配置决定（pro_protocol）；Flash 固定 Messages。
+        # Responses 适配器已挂进路由：配 responses_* 环境变量 + 切协议即真跑
+        pro_adapter: ModelAdapter = (
+            OpenAIResponsesAdapter()
+            if settings.pro_protocol.strip().lower() == "openai_responses"
+            else OpenAIChatCompletionsAdapter()
+        )
         self._adapters: dict[str, ModelAdapter] = {
-            "deepseek-v4-pro": OpenAIChatCompletionsAdapter(),  # Chat Completions 协议
+            "deepseek-v4-pro": pro_adapter,  # 协议开关驱动
             "deepseek-v4-flash": AnthropicMessagesAdapter(),  # Messages 协议（联调 MiniMax）
+            "glm-responses": OpenAIResponsesAdapter(),  # Responses 显式槽（上游就绪即真跑）
         }
         # 平台名 → 上游真实模型名
         self._upstream_names: dict[str, str] = {
             "deepseek-v4-pro": settings.upstream_model_pro,
             "deepseek-v4-flash": settings.upstream_model_flash,
+            "glm-responses": settings.upstream_model_pro,
         }
 
     def resolve(self, platform_model: str) -> RouteResult:

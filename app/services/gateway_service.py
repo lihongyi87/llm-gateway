@@ -1,5 +1,6 @@
 # Gateway 编排服务：限流 → 路由 → Prompt → Adapter(invoke/stream) → 重试 → Trace
-import json  # 结构化输出本地校验
+import json
+import re  # 结构化输出本地校验
 import time  # 流式 TTFT / total 计时
 from typing import Any, AsyncIterator, List, Optional  # 类型注解
 
@@ -95,15 +96,30 @@ class GatewayService:
         """
         if output_format is None:  # 自由文本不校验
             return
-        try:
-            parsed = json.loads(content)  # 必须是合法 JSON
-        except json.JSONDecodeError as exc:
+        # 宽松提取（思考型模型实测会包 ```json 围栏或带前导文字，
+        # 裸 loads 首字符必挂）：strip → 剥围栏 → 首个 {...} 块 三通道
+        candidates = [content.strip()]
+        fence = re.search(r"```(?:json)?\s*(.+?)```", content, re.S)
+        if fence:
+            candidates.insert(0, fence.group(1).strip())
+        brace = re.search(r"\{.*\}", content, re.S)
+        if brace:
+            candidates.insert(1, brace.group(0))
+        parsed = None
+        last_exc: Exception = None
+        for cand in candidates:
+            try:
+                parsed = json.loads(cand)
+                break
+            except json.JSONDecodeError as exc:
+                last_exc = exc
+        if parsed is None:
             raise GatewayError(
                 code=ErrorCode.SCHEMA_VALIDATION_FAILED,
-                message=f"model output is not valid JSON: {exc}",
+                message=f"model output is not valid JSON: {last_exc}",
                 http_status=422,
                 retryable=False,
-            ) from exc  # 保留 JSON 解析异常链
+            ) from last_exc
         if output_format.type == "json_object":  # 弱约束：只要是 JSON
             return
         if output_format.type == "json_schema" and output_format.json_schema is not None:
@@ -269,7 +285,35 @@ class GatewayService:
                 _call,
                 operation_name=f"invoke:{route.platform_model}",
             )
-            self._validate_structured_content(result.content, request.output_format)  # ⑥ 出口校验
+            # ⑥ 出口校验 + 修复重试（≤1 次）：实测部分"OpenAI Compatible"端点
+            # 无视 response_format 返回散文——Schema 注入重问一次（Anthropic
+            # 同款方案；全有或全无，修不好仍按校验失败拒绝）
+            if request.output_format is not None:
+                try:
+                    self._validate_structured_content(
+                        result.content, request.output_format)
+                except GatewayError:
+                    schema_txt = request.output_format.model_dump_json(
+                        exclude_none=True)
+                    repair_messages = [m.model_copy(deep=True)
+                                       for m in internal.messages]
+                    if repair_messages:
+                        last = repair_messages[-1]
+                        repair_messages[-1] = last.model_copy(update={
+                            'content': (last.content + chr(10) + chr(10)
+                                        + '【输出契约·最高优先级】只输出'
+                                        '一个符合此 JSON Schema 的 JSON 对象，'
+                                        '禁止 Markdown 围栏与解释文字：'
+                                        + schema_txt)})
+                    repair_internal = internal.model_copy(update={
+                        'messages': repair_messages})
+                    result2, _r2 = await retry_async(
+                        lambda: route.adapter.invoke(repair_internal),  # type: ignore
+                        operation_name=f"invoke-repair:{route.platform_model}")
+                    self._validate_structured_content(
+                        result2.content, request.output_format)
+                    result = result2
+                    retry_count += 1
             latency = self._normalize_nonstream_latency(result.latency)  # 非流式补 ttft
             self._save_ok_trace(  # ⑦ 写成功 Trace
                 trace_id=trace_id,

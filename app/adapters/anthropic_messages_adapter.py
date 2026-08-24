@@ -128,6 +128,10 @@ class AnthropicMessagesAdapter(ModelAdapter):
         """非流式：调用 messages.create。"""
         started = time.perf_counter()  # 计时起点
         system, body = self._split_system_and_messages(request.messages)  # 拆 system
+        if not body:  # 只有 system（如 prompt_template 无用户消息）：
+            # Anthropic 要求 messages 非空(2013)——system 降级为 user 任务消息
+            body = [{"role": "user", "content": system or ""}]
+            system = None
         kwargs: Dict[str, Any] = {
             "model": request.upstream_model,  # 上游模型 ID
             "messages": body,  # Anthropic messages

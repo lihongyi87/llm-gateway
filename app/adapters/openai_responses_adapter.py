@@ -36,8 +36,10 @@ class OpenAIResponsesAdapter(ModelAdapter):
         api_key: Optional[str] = None,  # 可注入，方便测试
         base_url: Optional[str] = None,  # 可注入上游地址
     ) -> None:
-        key = api_key if api_key is not None else settings.deepseek_pro_api_key  # 默认读配置
-        url = base_url if base_url is not None else settings.deepseek_pro_base_url  # 默认读配置
+        key = api_key if api_key is not None else (
+            settings.responses_api_key or settings.deepseek_pro_api_key)  # 默认读配置
+        url = base_url if base_url is not None else (
+            settings.responses_base_url or settings.deepseek_pro_base_url)  # 默认读配置
         # max_retries=0：禁止 SDK 隐式重试，重试只在网关 retry_async
         self._client = AsyncOpenAI(api_key=key or "missing-key", base_url=url, max_retries=0)
 

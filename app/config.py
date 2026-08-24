@@ -19,6 +19,15 @@ class Settings(BaseSettings):
     # Pro 槽实际上游模型 ID（默认 glm-4.6，不是 DeepSeek 官网模型）
     upstream_model_pro: str = "glm-4.6"
 
+    # Pro 槽协议开关：openai_responses | openai_chat_completions。
+    # 作业要求 Responses 协议；现网 bigmodel 端点无 /responses(404 实测)，
+    # 默认走 chat_completions，配了支持 /responses 的上游(如 api.deepseek.com)
+    # 时切 openai_responses 即启用——协议切换零改码（Adapter 层已就绪）
+    pro_protocol: str = "openai_chat_completions"
+    # Responses 槽独立上游（切协议时用）：默认同 pro 槽
+    responses_base_url: str = ""
+    responses_api_key: str = ""
+
     # Flash 槽 API Key。实际协议是 Anthropic Messages（联调 MiniMax）
     deepseek_flash_api_key: str = ""
     # Flash 槽 Anthropic 兼容地址（MiniMax 国内常用 api.minimaxi.com/anthropic）

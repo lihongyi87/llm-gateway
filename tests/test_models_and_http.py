@@ -52,11 +52,14 @@ def test_health_endpoint():
     body = resp.json()  # 解析 JSON
     assert body["status"] == "ok"  # 存活
     models = {item["model"]: item for item in body["models"]}  # 按平台名索引
-    assert models["deepseek-v4-pro"]["protocol"] == "openai_chat_completions"  # Pro 实际协议
+    from app.config import settings  # 协议由配置驱动（.env 可切 Responses/Chat）
+    expected_pro = ("openai_responses"
+                    if settings.pro_protocol.strip().lower() == "openai_responses"
+                    else "openai_chat_completions")
+    assert models["deepseek-v4-pro"]["protocol"] == expected_pro  # Pro 协议=配置
     assert models["deepseek-v4-flash"]["protocol"] == "anthropic_messages"  # Flash 实际协议
-    optional = body["optional_adapters"]  # 未接线适配器
-    assert optional[0]["adapter"] == "OpenAIResponsesAdapter"  # Responses 标明可选
-    assert optional[0]["status"] == "implemented_but_not_wired"  # 未挂路由
+    wired = {m["model"] for m in body["models"]}  # 已挂路由的模型集
+    assert "glm-responses" in wired  # Responses 槽显式在表（上游就绪即真跑）
 
 
 def test_http_sse_stream(monkeypatch, prompt_service, limiter, traces):
